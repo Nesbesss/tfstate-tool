@@ -214,4 +214,4 @@ class TerraformStateOperations:
             return json.loads(value_str)
         except json.JSONDecodeError:
             # If not valid JSON, return as string
-            return value_str
+            return
