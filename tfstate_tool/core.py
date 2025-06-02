@@ -7,7 +7,7 @@ import os
 import shutil
 import fnmatch
 from datetime import datetime
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, Union
 from pathlib import Path
 
 class TerraformStateManager:
@@ -99,6 +99,34 @@ class TerraformStateManager:
         
         return True
     
+    def _navigate_to_path(self, data: Any, path_parts: List[str]) -> Tuple[Any, str]:
+        """Navigate to a path in the data structure, handling arrays and objects.
+        
+        Returns:
+            Tuple of (parent_object, final_key) where the value should be set
+        """
+        current = data
+        
+        # Navigate to the parent of the target attribute
+        for i, key in enumerate(path_parts[:-1]):
+            # Check if this key represents an array index
+            if key.isdigit():
+                index = int(key)
+                if not isinstance(current, list):
+                    raise ValueError(f"Expected list at path component '{key}', got {type(current)}")
+                if index >= len(current):
+                    raise ValueError(f"Index {index} out of range for list of length {len(current)}")
+                current = current[index]
+            else:
+                # It's a dictionary key
+                if not isinstance(current, dict):
+                    raise ValueError(f"Expected dict at path component '{key}', got {type(current)}")
+                if key not in current:
+                    current[key] = {}
+                current = current[key]
+        
+        return current, path_parts[-1]
+    
     def modify_resource_attribute(self, address: str, attribute_path: str, 
                                  new_value: Any) -> bool:
         """Modify a specific attribute of a resource."""
@@ -106,20 +134,30 @@ class TerraformStateManager:
         if not resource:
             return False
         
-        # Navigate to the attribute
+        # Split the path and navigate to the target
         keys = attribute_path.split(".")
-        current = resource
         
-        # Navigate to the parent of the target attribute
-        for key in keys[:-1]:
-            if key not in current:
-                current[key] = {}
-            current = current[key]
-        
-        # Set the new value
-        current[keys[-1]] = new_value
-        
-        return True
+        try:
+            parent, final_key = self._navigate_to_path(resource, keys)
+            
+            # Handle the final key (could be array index or dict key)
+            if final_key.isdigit():
+                index = int(final_key)
+                if not isinstance(parent, list):
+                    raise ValueError(f"Expected list for index {final_key}, got {type(parent)}")
+                if index >= len(parent):
+                    raise ValueError(f"Index {index} out of range for list of length {len(parent)}")
+                parent[index] = new_value
+            else:
+                if not isinstance(parent, dict):
+                    raise ValueError(f"Expected dict for key {final_key}, got {type(parent)}")
+                parent[final_key] = new_value
+            
+            return True
+            
+        except (ValueError, IndexError, KeyError) as e:
+            print(f"Error modifying attribute: {e}")
+            return False
     
     def delete_resource(self, address: str) -> bool:
         """Delete a resource from the state file."""
